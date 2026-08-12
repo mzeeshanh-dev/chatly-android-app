@@ -1,0 +1,5 @@
+<resources>
+    <!-- Matches the JS SplashScreen's gradient base (src/screens/SplashScreen.tsx) so the
+         native cold-start frame doesn't flash white before React renders. -->
+    <color name="splash_background">#0b0c10</color>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status-bar / notification-tray small icon. Android forces small icons to a
+  flat white silhouette on API 21+ regardless of the source's colors, so this
+  must be a simple, bold shape on a transparent background — using the
+  full-color launcher icon here (the previous, implicit default) rendered as
+  a washed-out/blank silhouette, which is the "transparent-looking" icon.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M50 20C30.67 20 15 32.6 15 48.15C15 56.4 18.9 63.82 25.1 69.1C24.3 75.1 20.8 82.2 16 86.8C23.6 86.2 31.8 82.1 36.8 77.2C40.9 78.4 45.3 79.1 50 79.1C69.33 79.1 85 66.5 85 50.95C85 35.4 69.33 20 50 20Z"/>
+</vector>

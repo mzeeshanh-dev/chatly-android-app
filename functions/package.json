@@ -1,0 +1,32 @@
+{
+  "name": "chatly-functions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Firebase Cloud Functions for Chatly — OTP auth, avatar uploads, and push/email notifications. Deploys inside the chatly-ec08f project itself, no separate server to host.",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cloudinary": "^2.5.1",
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.0.1",
+    "nodemailer": "^6.9.16",
+    "streamifier": "^0.1.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^6.4.16",
+    "@types/streamifier": "^0.1.2",
+    "typescript": "^5.6.3"
+  }
+}

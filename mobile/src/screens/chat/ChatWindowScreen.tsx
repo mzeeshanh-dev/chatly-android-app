@@ -1,0 +1,447 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, FlatList, Pressable, KeyboardAvoidingView, Platform, TextInput as RNTextInput } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { formatDistanceToNow, isSameDay } from 'date-fns';
+import { CaretLeft, PaperPlaneRight, DotsThreeVertical, Check, X as XIcon } from 'phosphor-react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import Toast from 'react-native-toast-message';
+import { useTheme } from '../../theme/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+import { AppText } from '../../components/AppText';
+import { Avatar } from '../../components/Avatar';
+import { Screen } from '../../components/Screen';
+import { MessageBubble } from '../../components/MessageBubble';
+import { MessageActionBar } from '../../components/MessageActionBar';
+import { ForwardMessageSheet, type ForwardMessageSheetRef } from '../../components/ForwardMessageSheet';
+import { ConfirmSheet, type ConfirmSheetRef } from '../../components/ConfirmSheet';
+import { ProfilePhotoViewer } from '../../components/ProfilePhotoViewer';
+import { ChatLoadingSkeleton } from '../../components/ChatLoadingSkeleton';
+import { useMessages } from '../../hooks/useMessages';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { setTyping, getActiveTypists } from '../../lib/presence';
+import { sendRejectionEmail } from '../../lib/api';
+import { db } from '../../lib/firebase';
+import { doc, onSnapshot, updateDoc, deleteDoc, addDoc, FieldValue, messagesRef, getUser, type FirestoreUser } from '../../lib/firestore';
+import type { Timestamp } from '@react-native-firebase/firestore';
+import type { RootStackParamList } from '../../navigation/types';
+import type { SelectedConversation, MessageWithId } from '../../types/chat';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'ChatWindow'>;
+
+export function ChatWindowScreen({ route, navigation }: Props) {
+  const { conversation } = route.params;
+  const { colors } = useTheme();
+  const { profile } = useAuth();
+  const myUid = profile?.uid ?? '';
+
+  const collectionName = conversation.type === 'dm' ? 'chats' : 'groups';
+  const docId = conversation.type === 'dm' ? conversation.chatId : conversation.groupId;
+
+  const [liveDoc, setLiveDoc] = useState<Record<string, unknown> | null>(null);
+  const [otherUser, setOtherUser] = useState<FirestoreUser | null>(conversation.type === 'dm' ? conversation.other : null);
+  const [memberNames, setMemberNames] = useState<Record<string, string>>({});
+  const [text, setText] = useState('');
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<MessageWithId | null>(null);
+  
+  const confirmSheetRef = useRef<ConfirmSheetRef>(null);
+  const forwardSheetRef = useRef<ForwardMessageSheetRef>(null);
+  
+  const { messages, loading } = useMessages(collectionName, docId, myUid);
+  const { isOnline } = useNetworkStatus();
+  const listRef = useRef<FlatList>(null);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Only warn once per offline stretch, not on every single send attempt.
+  const hasWarnedOfflineRef = useRef(false);
+
+  useEffect(() => {
+    if (isOnline) hasWarnedOfflineRef.current = false;
+  }, [isOnline]);
+
+  const title = conversation.type === 'dm' ? conversation.other.displayName : conversation.name;
+  const photoURL = conversation.type === 'dm' ? conversation.other.photoURL : conversation.photoURL;
+
+  // ─── Live chat/group doc (status, typing, unread) ───────────────────────
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, collectionName, docId), (snap) => {
+      setLiveDoc(snap.exists() ? (snap.data() as Record<string, unknown>) : null);
+    });
+    return unsubscribe;
+  }, [collectionName, docId]);
+
+  // ─── Live "other" user profile for DMs (online status) ──────────────────
+  useEffect(() => {
+    if (conversation.type !== 'dm') return;
+    const unsubscribe = onSnapshot(doc(db, 'users', conversation.other.uid), (snap) => {
+      if (snap.exists()) setOtherUser(snap.data() as FirestoreUser);
+    });
+    return unsubscribe;
+  }, [conversation]);
+
+  // ─── Group member display names (message bubbles show names, not UIDs) ──
+  useEffect(() => {
+    if (conversation.type !== 'group') return;
+    Promise.all(conversation.members.map((m) => getUser(m.uid))).then((users) => {
+      const map: Record<string, string> = {};
+      users.forEach((u, i) => {
+        if (u) map[u.uid] = u.displayName;
+        else map[conversation.members[i].uid] = 'Unknown';
+      });
+      setMemberNames(map);
+    });
+  }, [conversation]);
+
+  const status = (liveDoc?.status as 'pending' | 'active' | 'rejected' | undefined) ?? (conversation.type === 'dm' ? conversation.status : 'active');
+  const requestedBy = (liveDoc?.requestedBy as string | undefined) ?? (conversation.type === 'dm' ? conversation.requestedBy : undefined);
+  const iAmRecipientOfPendingRequest = conversation.type === 'dm' && status === 'pending' && requestedBy !== myUid;
+  const iAmSenderOfPendingRequest = conversation.type === 'dm' && status === 'pending' && requestedBy === myUid;
+  // Symmetric: blocked if either side has blocked the other (matches web ChatWindow.tsx).
+  const isBlocked =
+    conversation.type === 'dm' && (profile?.blockedUsers?.includes(conversation.other.uid) || otherUser?.blockedUsers?.includes(myUid));
+  const composerDisabled = iAmRecipientOfPendingRequest || (iAmSenderOfPendingRequest && messages.length > 0) || status === 'rejected' || isBlocked;
+
+  const typists = useMemo(
+    () => getActiveTypists(liveDoc?.typing as Record<string, Timestamp> | undefined, myUid),
+    [liveDoc, myUid]
+  );
+
+  // ─── Mark unread-for-me messages as read + clear my unread counter ──────
+  useEffect(() => {
+    if (!liveDoc) return; // Wait for doc to exist before updating read status
+    const unread = messages.filter((m) => m.senderId !== myUid && m.status !== 'read' && m.type === 'text');
+    unread.forEach((m) => {
+      updateDoc(doc(messagesRef(collectionName, docId), m.id), { status: 'read' }).catch((e) => console.log('Silently failed to mark read:', e));
+    });
+    if (unread.length > 0 || (liveDoc?.unreadCount as Record<string, number>)?.[myUid]) {
+      updateDoc(doc(db, collectionName, docId), {
+        [`unreadCount.${myUid}`]: 0,
+        [`lastRead.${myUid}`]: FieldValue.serverTimestamp(),
+      }).catch((e) => console.log('Silently failed to clear unreadCount:', e));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, docId, liveDoc !== null]);
+
+  useEffect(() => {
+    if (messages.length > 0) requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+  }, [messages.length]);
+
+  const otherUid = conversation.type === 'dm' ? conversation.other.uid : undefined;
+
+  const handleChangeText = (value: string) => {
+    setText(value);
+    setTyping(collectionName, docId, myUid, value.length > 0);
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(() => setTyping(collectionName, docId, myUid, false), 4000);
+  };
+
+  const handleSend = async () => {
+    const trimmed = text.trim();
+    if (!trimmed || composerDisabled) return;
+    setText('');
+    setTyping(collectionName, docId, myUid, false);
+
+    // Firestore's own offline persistence queues this write locally and
+    // syncs automatically once connectivity returns — no queue to manage
+    // ourselves. This is just the one-time user-facing heads-up.
+    if (!isOnline && !hasWarnedOfflineRef.current) {
+      hasWarnedOfflineRef.current = true;
+      Toast.show({
+        type: 'info',
+        text1: 'No internet connection',
+        text2: "Your message will send automatically once you're back online.",
+      });
+    }
+
+    // addDoc/updateDoc resolve immediately from the local cache even while
+    // offline (Firestore queues the actual network write) — awaiting them
+    // does not block on connectivity.
+    try {
+      await addDoc(messagesRef(collectionName, docId), {
+        text: trimmed,
+        senderId: myUid,
+        timestamp: FieldValue.serverTimestamp(),
+        type: 'text',
+        status: 'sent',
+      });
+
+      const update: Record<string, unknown> = {
+        lastMessage: trimmed,
+        lastMessageAt: FieldValue.serverTimestamp(),
+      };
+      if (otherUid) update[`unreadCount.${otherUid}`] = FieldValue.increment(1);
+      await updateDoc(doc(db, collectionName, docId), update);
+    } catch (error: any) {
+      console.warn('Message send error:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Message not sent',
+        text2: error.message?.includes('permission') ? "You don't have permission to message this chat." : 'An unexpected error occurred.',
+      });
+    }
+    // Push notification for this message is sent server-side by the
+    // onNewChatMessage/onNewGroupMessage Firestore triggers (functions/src/functions/notify.ts) —
+    // fires once the write actually reaches the server, correctly covering
+    // the case where this device was offline when the message was sent.
+  };
+
+  const handleAccept = async () => {
+    await updateDoc(doc(db, 'chats', docId), { status: 'active' });
+  };
+
+  const handleDecline = async () => {
+    await updateDoc(doc(db, 'chats', docId), { status: 'rejected' });
+    if (otherUser) {
+      sendRejectionEmail(otherUser.email, profile?.displayName ?? '').catch(() => undefined);
+    }
+  };
+
+  const handleForwardMessage = async (conv: SelectedConversation, textToForward: string) => {
+    const col = conv.type === 'dm' ? 'chats' : 'groups';
+    const id = conv.type === 'dm' ? conv.chatId : conv.groupId;
+    
+    await addDoc(messagesRef(col, id), {
+      text: textToForward,
+      senderId: myUid,
+      timestamp: FieldValue.serverTimestamp(),
+      type: 'text',
+      status: 'sent',
+      forwarded: true,
+    });
+    
+    Toast.show({ type: 'success', text1: 'Message forwarded' });
+    setSelectedMessage(null);
+  };
+
+  const handleDeleteRequest = () => {
+    if (!selectedMessage) return;
+    const isMine = selectedMessage.senderId === myUid;
+    const within3Mins = Date.now() - ((selectedMessage.timestamp as Timestamp)?.toMillis?.() ?? Date.now()) < 3 * 60 * 1000;
+    const canDeleteForEveryone = isMine && within3Mins;
+
+    if (canDeleteForEveryone) {
+      confirmSheetRef.current?.open({
+        title: 'Delete Message',
+        description: 'Delete this message for yourself, or for everyone?',
+        confirmText: 'Delete for Everyone',
+        thirdText: 'Delete for Me',
+        confirmColor: 'destructive',
+        thirdColor: 'destructive',
+        onConfirm: async () => { // Delete for everyone
+          await deleteDoc(doc(messagesRef(collectionName, docId), selectedMessage.id));
+          setSelectedMessage(null);
+        },
+        onThirdAction: async () => { // Delete for me
+          await updateDoc(doc(messagesRef(collectionName, docId), selectedMessage.id), {
+            deletedFor: FieldValue.arrayUnion(myUid)
+          });
+          setSelectedMessage(null);
+        },
+      });
+    } else {
+      confirmSheetRef.current?.open({
+        title: 'Delete Message',
+        description: 'Are you sure you want to delete this message for yourself?',
+        confirmText: 'Delete for Me',
+        confirmColor: 'destructive',
+        onConfirm: async () => {
+          await updateDoc(doc(messagesRef(collectionName, docId), selectedMessage.id), {
+            deletedFor: FieldValue.arrayUnion(myUid)
+          });
+          setSelectedMessage(null);
+        },
+      });
+    }
+  };
+
+  return (
+    <Screen edges={['top', 'left', 'right']} noPadding>
+      <MessageActionBar
+        visible={selectedMessage !== null}
+        onClose={() => setSelectedMessage(null)}
+        onForward={() => forwardSheetRef.current?.open(selectedMessage?.text ?? '')}
+        onDelete={handleDeleteRequest}
+        isSender={selectedMessage?.senderId === myUid}
+      />
+      {/* Header */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          gap: 10,
+        }}
+      >
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
+          <CaretLeft size={22} color={colors.foreground} />
+        </Pressable>
+        <Pressable
+          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+          onPress={() => {
+            if (conversation.type === 'dm') {
+              navigation.navigate('ContactDetail', { conversation });
+            } else {
+              navigation.navigate('GroupDetail', { conversation });
+            }
+          }}
+        >
+          <Avatar uri={photoURL} name={title} size={38} online={otherUser?.status === 'online'} onPress={() => setViewerVisible(true)} />
+          <View style={{ flex: 1 }}>
+            <AppText weight="semibold" numberOfLines={1} style={{ fontSize: 15.5 }}>
+              {title}
+            </AppText>
+            <AppText muted style={{ fontSize: 11.5 }}>
+              {typists.length > 0
+                ? 'typing…'
+                : conversation.type === 'dm'
+                  ? otherUser?.status === 'online'
+                    ? 'Online'
+                    : otherUser?.lastSeen
+                      ? `Last seen ${formatDistanceToNow((otherUser.lastSeen as Timestamp).toDate?.() ?? new Date(), { addSuffix: true })}`
+                      : ''
+                  : `${conversation.members.length} members`}
+            </AppText>
+          </View>
+        </Pressable>
+        {conversation.type === 'group' ? (
+          <Pressable onPress={() => navigation.navigate('GroupSettings', { groupId: conversation.groupId })} hitSlop={10}>
+            <DotsThreeVertical size={20} color={colors.foreground} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
+        {loading && messages.length === 0 ? (
+          <ChatLoadingSkeleton />
+        ) : (
+        <FlatList
+          ref={listRef}
+          data={messages}
+          keyExtractor={(m) => m.id}
+          contentContainerStyle={{ paddingVertical: 12 }}
+          renderItem={({ item, index }) => {
+            const prev = messages[index - 1];
+            const showDateSeparator =
+              !prev || !isSameDay((item.timestamp as Timestamp)?.toDate?.() ?? new Date(), (prev.timestamp as Timestamp)?.toDate?.() ?? new Date());
+            const time = (item.timestamp as Timestamp)?.toDate
+              ? (item.timestamp as Timestamp).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : '';
+
+            return (
+              <View>
+                {showDateSeparator ? (
+                  <MessageBubble type="system" sent={false} time="" text={((item.timestamp as Timestamp)?.toDate?.() ?? new Date()).toDateString()} />
+                ) : null}
+                <MessageBubble
+                  text={item.text}
+                  sent={item.senderId === myUid}
+                  time={time}
+                  status={item.pendingWrite && item.status === 'sent' ? 'pending' : item.status}
+                  type={item.type}
+                  forwarded={item.forwarded}
+                  edited={item.edited}
+                  selected={selectedMessage?.id === item.id}
+                  selectionMode={selectedMessage !== null}
+                  onLongPress={() => setSelectedMessage(item as MessageWithId)}
+                  onPress={() => {
+                    if (selectedMessage) {
+                      setSelectedMessage(selectedMessage.id === item.id ? null : (item as MessageWithId));
+                    }
+                  }}
+                  showSenderName={conversation.type === 'group' && item.senderId !== myUid}
+                  senderName={memberNames[item.senderId] ?? item.senderId}
+                />
+              </View>
+            );
+          }}
+          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        />
+        )}
+
+        {iAmRecipientOfPendingRequest ? (
+          <Animated.View
+            entering={FadeIn}
+            style={{ flexDirection: 'row', gap: 10, padding: 14, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.secondary }}
+          >
+            <AppText style={{ flex: 1, fontSize: 13.5 }} muted>
+              {title} wants to start a conversation with you.
+            </AppText>
+            <Pressable onPress={handleDecline} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.muted }}>
+              <XIcon size={16} color={colors.mutedForeground} />
+            </Pressable>
+            <Pressable onPress={handleAccept} style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}>
+              <Check size={16} color="#fff" weight="bold" />
+            </Pressable>
+          </Animated.View>
+        ) : iAmSenderOfPendingRequest && messages.length > 0 ? (
+          <View style={{ padding: 14, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border }}>
+            <AppText muted style={{ fontSize: 13, textAlign: 'center' }}>
+              You have sent a message request. You can send more messages once they accept.
+            </AppText>
+          </View>
+        ) : status === 'rejected' ? (
+          <View style={{ padding: 14, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border }}>
+            <AppText muted style={{ fontSize: 13 }}>
+              This conversation request was declined.
+            </AppText>
+          </View>
+        ) : isBlocked ? (
+          <View style={{ padding: 14, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border }}>
+            <AppText muted style={{ fontSize: 13 }}>
+              You can&apos;t message this contact.
+            </AppText>
+          </View>
+        ) : (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'flex-end',
+              gap: 8,
+              padding: 10,
+              borderTopWidth: 1,
+              borderTopColor: colors.border,
+              backgroundColor: colors.background,
+            }}
+          >
+            <View style={{ flex: 1, backgroundColor: colors.input, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, maxHeight: 120 }}>
+              <RNTextInput
+                value={text}
+                onChangeText={handleChangeText}
+                placeholder="Message"
+                placeholderTextColor={colors.mutedForeground}
+                multiline
+                style={{ fontSize: 15, color: colors.foreground, fontFamily: 'Inter-Regular', maxHeight: 100 }}
+              />
+            </View>
+            <Pressable
+              onPress={handleSend}
+              disabled={!text.trim()}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: text.trim() ? colors.primary : colors.muted,
+              }}
+            >
+              <PaperPlaneRight size={19} color={text.trim() ? '#fff' : colors.mutedForeground} weight="fill" />
+            </Pressable>
+          </View>
+        )}
+      </KeyboardAvoidingView>
+
+      <ProfilePhotoViewer
+        visible={viewerVisible}
+        onClose={() => setViewerVisible(false)}
+        name={title}
+        uri={photoURL}
+      />
+
+      <ConfirmSheet ref={confirmSheetRef} />
+      <ForwardMessageSheet ref={forwardSheetRef} onForward={handleForwardMessage} />
+    </Screen>
+  );
+}
