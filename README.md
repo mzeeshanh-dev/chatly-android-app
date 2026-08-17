@@ -10,6 +10,14 @@
 
 ---
 
+## 📥 Download the App
+
+You can download the latest pre-built APK from the GitHub Releases page:
+
+**[Download latest Chatly.apk](https://github.com/mzeeshanh-dev/chatly-android-app/releases/latest)**
+
+---
+
 ## Table of contents
 
 - [What this repo is](#what-this-repo-is)
