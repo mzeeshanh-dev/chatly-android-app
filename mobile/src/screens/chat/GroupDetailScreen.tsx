@@ -13,6 +13,7 @@ import { getDocs, FieldValue, messagesRef, type MessageDoc } from '../../lib/fir
 import { writeBatch } from '@react-native-firebase/firestore';
 import type { RootStackParamList } from '../../navigation/types';
 import { ConfirmSheet, type ConfirmSheetRef } from '../../components/ConfirmSheet';
+import { TrackedItemsCard } from '../../components/TrackedItemsCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 
@@ -178,6 +179,15 @@ export function GroupDetailScreen({ navigation, route }: Props) {
             </View>
           ))}
         </View>
+
+        {profile ? (
+          <TrackedItemsCard
+            parentCollection="groups"
+            parentId={conversation.groupId}
+            myUid={profile.uid}
+            resolveName={(uid) => (uid === profile.uid ? 'You' : (members.find((m) => m.uid === uid)?.displayName ?? 'Unknown'))}
+          />
+        ) : null}
 
         {/* Actions */}
         <View style={{ backgroundColor: colors.secondary, borderRadius: 16, paddingHorizontal: 18 }}>

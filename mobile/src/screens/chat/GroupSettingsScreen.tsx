@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Pressable, ScrollView, Alert, TextInput } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { X as XIcon, SignOut, Crown } from 'phosphor-react-native';
+import { X as XIcon, SignOut, Crown, UserPlus, Check } from 'phosphor-react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { AppText } from '../../components/AppText';
@@ -12,6 +12,8 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import Toast from 'react-native-toast-message';
 import { onSnapshot, updateDoc, getUser, FieldValue, groupRef, type FirestoreUser, type GroupDoc } from '../../lib/firestore';
 import type { RootStackParamList } from '../../navigation/types';
+import { useUsersQuery } from '../../hooks/useFirestoreQueries';
+import { Modal } from 'react-native';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupSettings'>;
 
@@ -26,6 +28,11 @@ export function GroupSettingsScreen({ route, navigation }: Props) {
   const [newDesc, setNewDesc] = useState('');
   const [uploading, setUploading] = useState(false);
   
+  const { data: allUsers = [] } = useUsersQuery(profile?.uid);
+  const [showAddMembers, setShowAddMembers] = useState(false);
+  const [selectedNewMembers, setSelectedNewMembers] = useState<Set<string>>(new Set());
+  const [addingMembers, setAddingMembers] = useState(false);
+
   const confirmSheetRef = useRef<ConfirmSheetRef>(null);
 
   useEffect(() => {
@@ -108,6 +115,37 @@ export function GroupSettingsScreen({ route, navigation }: Props) {
     Toast.show({ type: 'success', text1: 'Group info updated' });
   };
 
+  const availableUsers = allUsers.filter((u) => !group.memberIds.includes(u.uid));
+
+  const toggleNewMember = (uid: string) => {
+    setSelectedNewMembers((prev) => {
+      const next = new Set(prev);
+      next.has(uid) ? next.delete(uid) : next.add(uid);
+      return next;
+    });
+  };
+
+  const handleAddMembers = async () => {
+    if (selectedNewMembers.size === 0) return;
+    setAddingMembers(true);
+    try {
+      const newUids = Array.from(selectedNewMembers);
+      const newMembersList = newUids.map(uid => ({ uid, status: 'accepted' as const }));
+      await updateDoc(groupRef(groupId), {
+        memberIds: FieldValue.arrayUnion(...newUids),
+        members: FieldValue.arrayUnion(...newMembersList),
+      });
+      Toast.show({ type: 'success', text1: 'Members added' });
+      setShowAddMembers(false);
+      setSelectedNewMembers(new Set());
+    } catch (err) {
+      Toast.show({ type: 'error', text1: 'Failed to add members' });
+    } finally {
+      setAddingMembers(false);
+    }
+  };
+
+
   return (
     <Screen noPadding>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, paddingBottom: 8 }}>
@@ -188,9 +226,17 @@ export function GroupSettingsScreen({ route, navigation }: Props) {
           )}
         </View>
 
-        <AppText weight="semibold" muted style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
-          Members
-        </AppText>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <AppText weight="semibold" muted style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Members
+          </AppText>
+          {isAdmin ? (
+            <Pressable onPress={() => setShowAddMembers(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <UserPlus size={16} color={colors.primary} />
+              <AppText weight="semibold" style={{ color: colors.primary, fontSize: 13 }}>Add Member</AppText>
+            </Pressable>
+          ) : null}
+        </View>
         {members.map((m) => (
           <View key={m.uid} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 }}>
             <Avatar uri={m.photoURL} name={m.displayName} size={40} online={m.status === 'online'} />
@@ -210,6 +256,70 @@ export function GroupSettingsScreen({ route, navigation }: Props) {
       </ScrollView>
 
       <ConfirmSheet ref={confirmSheetRef} />
+
+      <Modal visible={showAddMembers} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowAddMembers(false)}>
+        <Screen noPadding>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, paddingBottom: 8 }}>
+            <AppText weight="extrabold" style={{ fontSize: 20 }}>
+              Add Members
+            </AppText>
+            <Pressable onPress={() => setShowAddMembers(false)} hitSlop={10} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.muted, alignItems: 'center', justifyContent: 'center' }}>
+              <XIcon size={16} color={colors.foreground} />
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16 }}>
+            {availableUsers.length === 0 ? (
+              <AppText muted style={{ textAlign: 'center', marginTop: 20 }}>No new users to add.</AppText>
+            ) : null}
+            {availableUsers.map((u) => {
+              const isSelected = selectedNewMembers.has(u.uid);
+              return (
+                <Pressable
+                  key={u.uid}
+                  onPress={() => toggleNewMember(u.uid)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 }}
+                >
+                  <Avatar uri={u.photoURL} name={u.displayName} size={44} />
+                  <AppText weight="medium" style={{ flex: 1, fontSize: 14.5 }}>
+                    {u.displayName}
+                  </AppText>
+                  <View
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      borderWidth: isSelected ? 0 : 1.5,
+                      borderColor: colors.border,
+                      backgroundColor: isSelected ? colors.primary : 'transparent',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {isSelected ? <Check size={14} color="#fff" weight="bold" /> : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <View style={{ padding: 16 }}>
+            <Pressable
+              onPress={handleAddMembers}
+              disabled={selectedNewMembers.size === 0 || addingMembers}
+              style={{
+                backgroundColor: selectedNewMembers.size > 0 ? colors.primary : colors.muted,
+                paddingVertical: 14,
+                borderRadius: 12,
+                alignItems: 'center',
+                opacity: addingMembers ? 0.7 : 1,
+              }}
+            >
+              <AppText weight="bold" style={{ color: selectedNewMembers.size > 0 ? '#fff' : colors.mutedForeground, fontSize: 16 }}>
+                Add Selected
+              </AppText>
+            </Pressable>
+          </View>
+        </Screen>
+      </Modal>
     </Screen>
   );
 }

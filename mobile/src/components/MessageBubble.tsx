@@ -1,11 +1,55 @@
-import React from 'react';
-import { View, Pressable } from 'react-native';
+import React, { useState } from 'react';
+import { View, Pressable, Image, Linking } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import { CheckCircle } from 'phosphor-react-native';
+import { CheckCircle, FileText, Play, Pause, DownloadSimple } from 'phosphor-react-native';
+import AudioRecorderPlayer from 'react-native-nitro-sound';
 import { useTheme } from '../theme/ThemeContext';
 import { AppText } from './AppText';
 import { TickIcon } from './TickIcon';
 import { sharedColors } from '../theme/tokens';
+import type { MessageMediaMeta } from '../lib/firestore';
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(ms?: number): string {
+  if (!ms) return '0:00';
+  const totalSeconds = Math.round(ms / 1000);
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+}
+
+function VoiceMessagePlayer({ uri, durationMs, tint }: { uri: string; durationMs?: number; tint: string }) {
+  const [playing, setPlaying] = useState(false);
+
+  const toggle = async () => {
+    if (playing) {
+      await AudioRecorderPlayer.stopPlayer();
+      setPlaying(false);
+      return;
+    }
+    setPlaying(true);
+    await AudioRecorderPlayer.startPlayer(uri);
+    AudioRecorderPlayer.addPlayBackListener((meta) => {
+      if (meta.currentPosition >= meta.duration && meta.duration > 0) {
+        AudioRecorderPlayer.stopPlayer();
+        AudioRecorderPlayer.removePlayBackListener();
+        setPlaying(false);
+      }
+    });
+  };
+
+  return (
+    <Pressable onPress={toggle} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 140 }}>
+      <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+        {playing ? <Pause size={14} color={tint} weight="fill" /> : <Play size={14} color={tint} weight="fill" />}
+      </View>
+      <AppText style={{ fontSize: 13, color: tint }}>{formatDuration(durationMs)} · Voice message</AppText>
+    </Pressable>
+  );
+}
 
 interface MessageBubbleProps {
   text: string;
@@ -19,6 +63,9 @@ interface MessageBubbleProps {
   edited?: boolean;
   selected?: boolean;
   selectionMode?: boolean;
+  mediaType?: 'image' | 'file' | 'voice';
+  mediaUrl?: string;
+  mediaMeta?: MessageMediaMeta;
   onLongPress?: () => void;
   onPress?: () => void;
 }
@@ -35,10 +82,14 @@ export const MessageBubble = React.memo(function MessageBubble({
   edited,
   selected,
   selectionMode,
+  mediaType,
+  mediaUrl,
+  mediaMeta,
   onLongPress,
   onPress,
 }: MessageBubbleProps) {
   const { colors } = useTheme();
+  const textTint = sent ? '#ffffff' : colors.bubbleReceivedText;
 
   if (type === 'system') {
     return (
@@ -108,9 +159,28 @@ export const MessageBubble = React.memo(function MessageBubble({
             </AppText>
           ) : null}
 
-          <AppText style={{ fontSize: 15, lineHeight: 20, color: sent ? '#ffffff' : colors.bubbleReceivedText }}>
-            {text}
-          </AppText>
+          {mediaType === 'image' && mediaUrl ? (
+            <Image source={{ uri: mediaUrl }} style={{ width: 220, height: 220, borderRadius: 12, marginBottom: text ? 6 : 0 }} resizeMode="cover" />
+          ) : mediaType === 'file' && mediaUrl ? (
+            <Pressable onPress={() => Linking.openURL(mediaUrl)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 160 }}>
+              <FileText size={26} color={textTint} weight="fill" />
+              <View style={{ flex: 1 }}>
+                <AppText numberOfLines={1} style={{ fontSize: 13.5, color: textTint }}>
+                  {mediaMeta?.fileName ?? 'File'}
+                </AppText>
+                <AppText style={{ fontSize: 11, opacity: 0.7, color: textTint }}>{formatBytes(mediaMeta?.sizeBytes ?? 0)}</AppText>
+              </View>
+              <DownloadSimple size={16} color={textTint} />
+            </Pressable>
+          ) : mediaType === 'voice' && mediaUrl ? (
+            <VoiceMessagePlayer uri={mediaUrl} durationMs={mediaMeta?.durationMs} tint={textTint} />
+          ) : null}
+
+          {text ? (
+            <AppText style={{ fontSize: 15, lineHeight: 20, color: sent ? '#ffffff' : colors.bubbleReceivedText, marginTop: mediaType ? 2 : 0 }}>
+              {text}
+            </AppText>
+          ) : null}
 
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 4, gap: 5 }}>
             {edited ? (

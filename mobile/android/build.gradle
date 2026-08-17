@@ -17,6 +17,8 @@ buildscript {
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
         // Reads android/app/google-services.json — required by @react-native-firebase.
         classpath("com.google.gms:google-services:4.4.2")
+        // Uploads native (and, via @react-native-firebase/crashlytics, JS) crash reports.
+        classpath("com.google.firebase:firebase-crashlytics-gradle:3.0.2")
     }
 }
 

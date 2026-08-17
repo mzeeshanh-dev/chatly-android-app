@@ -26,7 +26,7 @@ react {
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
+    nodeExecutableAndArgs = ["node", "--max-old-space-size=8192"]
     //
     //   The command to run when bundling. By default is 'bundle'
     // bundleCommand = "ram-bundle"
@@ -133,8 +133,10 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
 }
 
 // Must be applied after the android {} block, and only once google-services.json
 // exists at android/app/google-services.json (see mobile/README.md "Firebase setup").
+apply plugin: "com.google.firebase.crashlytics"
 apply plugin: "com.google.gms.google-services"

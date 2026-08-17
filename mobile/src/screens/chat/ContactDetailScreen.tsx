@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { View, ScrollView, Pressable, Switch, Alert } from 'react-native';
+import { View, ScrollView, Pressable, Switch, Alert, Image as RNImage } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CaretLeft, BellSimple, Prohibit, Trash, Archive, Image, EnvelopeSimple, Phone, MapPin } from 'phosphor-react-native';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../theme/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { AppText } from '../../components/AppText';
-import { Avatar } from '../../components/Avatar';
+import { Avatar, getPresenceDotColor } from '../../components/Avatar';
 import { Screen } from '../../components/Screen';
 import { db } from '../../lib/firebase';
 import { doc, updateDoc, getDocs, FieldValue, messagesRef, type MessageDoc } from '../../lib/firestore';
@@ -14,6 +14,8 @@ import { writeBatch } from '@react-native-firebase/firestore';
 import { COLLECTIONS } from '../../lib/firestore';
 import type { RootStackParamList } from '../../navigation/types';
 import { ConfirmSheet, type ConfirmSheetRef } from '../../components/ConfirmSheet';
+import { TrackedItemsCard } from '../../components/TrackedItemsCard';
+import { useMessages } from '../../hooks/useMessages';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ContactDetail'>;
 
@@ -27,10 +29,15 @@ export function ContactDetailScreen({ navigation, route }: Props) {
     conversation.type === 'dm' && Boolean(conversation.archivedFor?.includes(profile?.uid ?? ''))
   );
   const confirmSheetRef = React.useRef<ConfirmSheetRef>(null);
+  const { messages } = useMessages('chats', conversation.type === 'dm' ? conversation.chatId : '', profile?.uid ?? '');
+  
+  const sharedMedia = messages.filter(m => m.mediaType === 'image' || m.mediaType === 'file' || m.mediaType === 'voice');
 
   if (conversation.type !== 'dm') return null;
   const { other } = conversation;
   const blocked = profile?.blockedUsers?.includes(other.uid) ?? false;
+  const isBlockedEitherWay = blocked || (other.blockedUsers?.includes(profile?.uid ?? '') ?? false);
+  const heroDotColor = getPresenceDotColor({ status: conversation.status, isBlocked: isBlockedEitherWay, isOnline: other.status === 'online' });
 
   const handleToggleMute = (value: boolean) => {
     setMuted(value);
@@ -130,7 +137,7 @@ export function ContactDetailScreen({ navigation, route }: Props) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Hero Section */}
         <View style={{ alignItems: 'center', marginVertical: 24 }}>
-          <Avatar uri={other.photoURL} name={other.displayName} size={106} online={other.status === 'online'} />
+          <Avatar uri={other.photoURL} name={other.displayName} size={106} dotColor={heroDotColor ?? undefined} />
           <AppText weight="extrabold" style={{ fontSize: 22, marginTop: 14 }}>
             {other.displayName}
           </AppText>
@@ -183,13 +190,43 @@ export function ContactDetailScreen({ navigation, route }: Props) {
         </View>
 
         {/* Shared Media */}
-        <View style={{ backgroundColor: colors.secondary, borderRadius: 16, padding: 18, marginBottom: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Image size={22} color={colors.primary} style={{ marginRight: 14 }} />
-            <AppText weight="semibold" style={{ fontSize: 15 }}>Shared Media & Docs</AppText>
+        <View style={{ backgroundColor: colors.secondary, borderRadius: 16, padding: 18, marginBottom: 20 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sharedMedia.length > 0 ? 14 : 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Image size={22} color={colors.primary} style={{ marginRight: 14 }} />
+              <AppText weight="semibold" style={{ fontSize: 15 }}>Shared Media & Docs</AppText>
+            </View>
+            <AppText muted style={{ fontSize: 13 }}>{sharedMedia.length} items</AppText>
           </View>
-          <AppText muted style={{ fontSize: 13 }}>0 items</AppText>
+          {sharedMedia.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {sharedMedia.map((m) => (
+                <Pressable
+                  key={m.id}
+                  onPress={() => navigation.navigate('ChatWindow', { conversation, highlightMessageId: m.id })}
+                  style={{ width: 70, height: 70, borderRadius: 8, backgroundColor: colors.muted, marginRight: 10, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  {m.mediaType === 'image' && m.mediaUrl ? (
+                    <RNImage source={{ uri: m.mediaUrl }} style={{ width: '100%', height: '100%' }} />
+                  ) : m.mediaType === 'file' ? (
+                    <AppText style={{ fontSize: 10, color: colors.mutedForeground, textAlign: 'center' }}>{m.mediaMeta?.fileName?.slice(0, 8)}</AppText>
+                  ) : (
+                    <AppText style={{ fontSize: 10, color: colors.mutedForeground }}>Voice</AppText>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
         </View>
+
+        {profile ? (
+          <TrackedItemsCard
+            parentCollection="chats"
+            parentId={conversation.chatId}
+            myUid={profile.uid}
+            resolveName={(uid) => (uid === profile.uid ? 'You' : other.displayName)}
+          />
+        ) : null}
 
         {/* Settings & Actions */}
         <View style={{ backgroundColor: colors.secondary, borderRadius: 16, paddingHorizontal: 18 }}>

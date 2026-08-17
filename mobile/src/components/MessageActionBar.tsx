@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
-import { X as XIcon, ShareNetwork, Trash } from 'phosphor-react-native';
+import { X as XIcon, ShareNetwork, Trash, TagSimple } from 'phosphor-react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { AppText } from './AppText';
 
@@ -10,10 +10,12 @@ interface MessageActionBarProps {
   onClose: () => void;
   onForward: () => void;
   onDelete: () => void;
+  onTag: () => void;
   isSender: boolean;
+  selectedCount?: number;
 }
 
-export function MessageActionBar({ visible, onClose, onForward, onDelete, isSender }: MessageActionBarProps) {
+export function MessageActionBar({ visible, onClose, onForward, onDelete, onTag, isSender, selectedCount = 1 }: MessageActionBarProps) {
   const { colors } = useTheme();
   const translateY = useSharedValue(-60);
   const opacity = useSharedValue(0);
@@ -40,9 +42,14 @@ export function MessageActionBar({ visible, onClose, onForward, onDelete, isSend
           <XIcon size={24} color="#fff" />
         </Pressable>
         <AppText weight="bold" style={styles.title}>
-          1 Selected
+          {selectedCount} Selected
         </AppText>
         <View style={styles.actions}>
+          {selectedCount === 1 ? (
+            <Pressable onPress={onTag} hitSlop={12} style={styles.iconBtn}>
+              <TagSimple size={24} color="#fff" weight="fill" />
+            </Pressable>
+          ) : null}
           <Pressable onPress={onForward} hitSlop={12} style={styles.iconBtn}>
             <ShareNetwork size={24} color="#fff" weight="fill" />
           </Pressable>

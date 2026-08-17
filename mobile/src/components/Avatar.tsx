@@ -3,15 +3,20 @@ import { View, Image, Pressable } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { AppText } from './AppText';
 
+export type PresenceDotColor = 'green' | 'red' | 'yellow';
+
 interface AvatarProps {
   uri?: string | null;
   name: string;
   size?: number;
   online?: boolean;
+  /** Overrides the default green online dot — see getPresenceDotColor(). */
+  dotColor?: PresenceDotColor;
   onPress?: () => void;
 }
 
 const PALETTE = ['#10b981', '#06b6d4', '#8b5cf6', '#f59e0b', '#ec4899', '#3b82f6'];
+const DOT_COLORS: Record<PresenceDotColor, string> = { green: '#10b981', red: '#ef4444', yellow: '#f59e0b' };
 
 export function colorForName(name: string): string {
   let hash = 0;
@@ -19,7 +24,27 @@ export function colorForName(name: string): string {
   return PALETTE[Math.abs(hash) % PALETTE.length];
 }
 
-export const Avatar = React.memo(function Avatar({ uri, name, size = 44, online, onPress }: AvatarProps) {
+/**
+ * DM presence dot color. Pending always shows yellow regardless of online
+ * status (there's nothing to be "present" about yet); once active, the dot
+ * only appears while the other user is online, red taking priority over
+ * green when either side has blocked the other.
+ */
+export function getPresenceDotColor({
+  status,
+  isBlocked,
+  isOnline,
+}: {
+  status: 'pending' | 'active' | 'rejected';
+  isBlocked: boolean;
+  isOnline: boolean;
+}): PresenceDotColor | null {
+  if (status === 'pending') return 'yellow';
+  if (status !== 'active' || !isOnline) return null;
+  return isBlocked ? 'red' : 'green';
+}
+
+export const Avatar = React.memo(function Avatar({ uri, name, size = 44, online, dotColor, onPress }: AvatarProps) {
   const { colors } = useTheme();
   const [failed, setFailed] = useState(false);
   const initial = name?.trim()?.[0]?.toUpperCase() ?? '?';
@@ -50,7 +75,7 @@ export const Avatar = React.memo(function Avatar({ uri, name, size = 44, online,
           </AppText>
         </View>
       )}
-      {online ? (
+      {dotColor || online ? (
         <View
           style={{
             position: 'absolute',
@@ -59,7 +84,7 @@ export const Avatar = React.memo(function Avatar({ uri, name, size = 44, online,
             width: Math.max(12, size * 0.28),
             height: Math.max(12, size * 0.28),
             borderRadius: 999,
-            backgroundColor: '#10b981',
+            backgroundColor: dotColor ? DOT_COLORS[dotColor] : '#10b981',
             borderWidth: 2,
             borderColor: colors.background,
             zIndex: 10,

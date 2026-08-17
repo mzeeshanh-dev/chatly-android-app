@@ -5,6 +5,7 @@
 import './global.css';
 import React, { useEffect, useRef } from 'react';
 import { View } from 'react-native';
+import { getCrashlytics, recordError } from '@react-native-firebase/crashlytics';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme, DarkTheme, type Theme } from '@react-navigation/native';
@@ -20,6 +21,17 @@ import { setupPushHandlers } from './src/lib/notifications';
 import { useUnreadBadge } from './src/hooks/useUnreadBadge';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { OfflineBanner } from './src/components/OfflineBanner';
+
+// <ErrorBoundary> below only catches errors thrown during React's render/effect
+// phase. Anything thrown from outside that (a rejected promise, a timer
+// callback, a native-module error) bypasses it entirely and would otherwise
+// only ever show up as "Chatly keeps stopping" with zero diagnostics — this
+// is the other half of that fix.
+const defaultErrorHandler = ErrorUtils.getGlobalHandler();
+ErrorUtils.setGlobalHandler((error, isFatal) => {
+  recordError(getCrashlytics(), error);
+  defaultErrorHandler(error, isFatal);
+});
 
 // Note: there's no global default-font mechanism here on purpose. React 19
 // dropped `defaultProps` support for function components, and RN's <Text> is

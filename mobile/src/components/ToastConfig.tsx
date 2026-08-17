@@ -14,21 +14,21 @@ export const toastConfig: ToastConfig = {
       style={({ pressed }) => [
         {
           width: TOAST_WIDTH,
-          backgroundColor: '#18181b', // Zinc 900
+          backgroundColor: '#27272a', // Solid Zinc 800
           borderRadius: 16,
           padding: 16,
           flexDirection: 'row',
           alignItems: 'flex-start',
           borderWidth: 1,
-          borderColor: '#27272a', // Zinc 800
+          borderColor: '#3f3f46',
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.3,
+          shadowOpacity: 0.5,
           shadowRadius: 12,
           elevation: 10,
           marginTop: Platform.OS === 'android' ? 10 : 0,
         },
-        pressed && { backgroundColor: '#27272a' },
+        pressed && { backgroundColor: '#3f3f46' },
       ]}
     >
       {props.avatar ? (

@@ -26,7 +26,7 @@ interface PushArgs {
  * server, so they work correctly even if the sender was offline when they
  * hit send and it only synced later via Firestore's offline queue).
  */
-async function sendPushToUser({ recipientId, title, body, senderName, senderPhotoUrl, chatId, collectionName, data }: PushArgs) {
+export async function sendPushToUser({ recipientId, title, body, senderName, senderPhotoUrl, chatId, collectionName, data }: PushArgs) {
   const userDoc = await adminDb.collection(COLLECTIONS.USERS).doc(recipientId).get();
   if (!userDoc.exists) return { success: true, message: "User not found" };
 

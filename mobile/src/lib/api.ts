@@ -4,13 +4,23 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
   updateProfile,
+  getIdToken,
 } from '@react-native-firebase/auth';
 import { doc, setDoc, updateDoc, FieldValue } from '@react-native-firebase/firestore';
 import { app, auth, db } from './firebase';
 import { COLLECTIONS } from './firestore';
+import { WEB_API_BASE_URL } from '../config/constants';
 
-// Optional server-side functions for avatar processing and notifications.
-// All core authentication is handled natively via Firebase client SDKs for zero-server deployments.
+// All core authentication is handled natively via Firebase client SDKs for
+// zero-server deployments. `call()`/`functionsInstance` below back the small
+// handful of Cloud-Function-based helpers still defined for reference
+// (uploadAvatar/deleteAvatar/sendPush/sendRequestEmail) — none of them are
+// currently invoked anywhere in the app, and none will work unless
+// functions/ is actually deployed (requires Firebase's paid Blaze plan).
+// The functions this app actually depends on (uploadChatMedia,
+// sendRejectionEmail, message push) go through `webApi()` instead, which
+// hits the Chatly web app's own Vercel-hosted Next.js API — no Firebase
+// billing plan involved.
 const functionsInstance = getFunctions(app);
 
 export class ApiError extends Error {
@@ -29,6 +39,36 @@ async function call<T>(name: string, data?: unknown): Promise<T> {
   } catch (error: any) {
     throw new ApiError(error?.message ?? 'Something went wrong. Please try again.', error?.code ?? 'unknown');
   }
+}
+
+async function webApi<T>(path: string, body: unknown): Promise<T> {
+  const user = auth.currentUser;
+  if (!user) throw new ApiError('Sign in required.', 'unauthenticated');
+  const idToken = await getIdToken(user);
+
+  const res = await fetch(`${WEB_API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(json.error ?? 'Something went wrong. Please try again.', String(res.status));
+  return json as T;
+}
+
+async function webApiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const user = auth.currentUser;
+  if (!user) throw new ApiError('Sign in required.', 'unauthenticated');
+  const idToken = await getIdToken(user);
+
+  const res = await fetch(`${WEB_API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}` },
+    body: formData,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(json.error ?? 'Upload failed.', String(res.status));
+  return json as T;
 }
 
 export interface RegisterResult {
@@ -137,6 +177,34 @@ export function deleteAvatar(publicIds: string[]) {
   return call<{ success: true }>('deleteAvatar', { publicIds });
 }
 
+export interface UploadChatMediaResult {
+  url: string;
+  publicId: string;
+  sizeBytes: number;
+}
+/**
+ * Hits the web app's /api/upload/chat-media route (auth-checked + chat
+ * membership-checked server-side there), not a Cloud Function — see the
+ * module comment above. Uploads via multipart FormData with `{ uri, name,
+ * type }`, RN's standard file-upload shape, so the picked file streams
+ * straight from disk instead of being base64-encoded into memory first.
+ */
+export function uploadChatMedia(input: {
+  uri: string;
+  fileName: string;
+  mimeType: string;
+  mediaType: 'image' | 'file' | 'voice';
+  chatId: string;
+  isGroup: boolean;
+}) {
+  const formData = new FormData();
+  formData.append('file', { uri: input.uri, name: input.fileName, type: input.mimeType } as unknown as Blob);
+  formData.append('chatId', input.chatId);
+  formData.append('isGroup', String(input.isGroup));
+  formData.append('mediaType', input.mediaType);
+  return webApiUpload<UploadChatMediaResult>('/api/upload/chat-media', formData);
+}
+
 export interface SendPushInput {
   recipientId: string;
   title?: string;
@@ -152,9 +220,27 @@ export function sendPush(input: SendPushInput) {
 }
 
 export function sendRequestEmail(toEmail: string, fromName: string) {
-  return call<{ success: true }>('sendRequestEmail', { toEmail, fromName });
+  return webApi<{ success: true }>('/api/notify/request', { toEmail, fromName });
 }
 
 export function sendRejectionEmail(toEmail: string, fromName: string) {
-  return call<{ success: true }>('sendRejectionEmail', { toEmail, fromName });
+  return webApi<{ success: true }>('/api/notify/rejection', { toEmail, fromName });
+}
+
+export interface NotifyMessageInput {
+  recipientId: string;
+  body: string;
+  senderName: string;
+  senderPhotoUrl?: string;
+  chatId: string;
+  collectionName: 'chats' | 'groups';
+}
+/**
+ * Message-send push notification. Mobile has no Firestore-trigger Cloud
+ * Function to fire this automatically (would require the Blaze plan), so —
+ * same as the web app's own sendMessage — the client calls it directly right
+ * after the Firestore write succeeds.
+ */
+export function notifyMessage(input: NotifyMessageInput) {
+  return webApi<{ success: true }>('/api/notify', input);
 }

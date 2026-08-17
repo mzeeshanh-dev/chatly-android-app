@@ -126,6 +126,42 @@ export function LoginScreen({ navigation }: Props) {
               </AppText>
             </Pressable>
           </View>
+
+          <View style={{ marginTop: 40 }}>
+            <AppText weight="bold" style={{ textAlign: 'center', marginBottom: 16, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1, color: colors.mutedForeground }}>
+              Guest Accounts
+            </AppText>
+            {[
+              { email: 'guest_user@gmail.com', label: 'Guest Account 1' },
+              { email: 'guest_user1@gmail.com', label: 'Guest Account 2' },
+              { email: 'guest_user2@gmail.com', label: 'Guest Account 3' },
+            ].map((guest, idx) => (
+              <Pressable
+                key={idx}
+                style={{
+                  backgroundColor: colors.secondary,
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderWidth: 1,
+                  borderColor: colors.border
+                }}
+                onPress={() => {
+                  setEmail(guest.email);
+                  setPassword('12345678');
+                }}
+              >
+                <View>
+                  <AppText weight="semibold" style={{ fontSize: 15 }}>{guest.label}</AppText>
+                  <AppText muted style={{ fontSize: 12, marginTop: 4, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }}>PWD: 12345678</AppText>
+                </View>
+                <AppText muted style={{ fontSize: 13 }}>Click to use</AppText>
+              </Pressable>
+            ))}
+          </View>
         </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>

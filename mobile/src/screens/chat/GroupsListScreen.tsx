@@ -1,8 +1,8 @@
-import React from 'react';
-import { View, Pressable } from 'react-native';
+import React, { useState } from 'react';
+import { View, Pressable, TextInput } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
-import { Plus } from 'phosphor-react-native';
+import { Plus, MagnifyingGlass } from 'phosphor-react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useTheme } from '../../theme/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -20,15 +20,29 @@ export function GroupsListScreen() {
   const { profile } = useAuth();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { data: groups = [], synced } = useGroupsQuery(profile?.uid);
+  const [searchQuery, setSearchQuery] = useState('');
+  
   const fabScale = useSharedValue(1);
   const fabStyle = useAnimatedStyle(() => ({ transform: [{ scale: fabScale.value }] }));
+
+  const filteredGroups = groups.filter((g: any) => g.type === 'group' && g.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
     <Screen edges={['top', 'left', 'right']} noPadding>
       <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }}>
-        <AppText weight="extrabold" style={{ fontSize: 26 }}>
+        <AppText weight="extrabold" style={{ fontSize: 26, marginBottom: 12 }}>
           Groups
         </AppText>
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.input, borderRadius: 12, paddingHorizontal: 12, height: 44 }}>
+          <MagnifyingGlass size={20} color={colors.mutedForeground} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search groups..."
+            placeholderTextColor={colors.mutedForeground}
+            style={{ flex: 1, marginLeft: 8, color: colors.foreground, fontSize: 15, fontFamily: 'Inter-Regular' }}
+          />
+        </View>
       </View>
 
       {!synced ? (
@@ -45,22 +59,20 @@ export function GroupsListScreen() {
       ) : (
         <View style={{ flex: 1, overflow: 'hidden' }}>
           <FastList
-            data={groups}
+            data={filteredGroups}
             estimatedItemSize={80}
             contentContainerStyle={{ paddingBottom: 90 }}
-            keyExtractor={(item: any) => (item.type === 'group' ? item.groupId : '')}
-            renderItem={({ item }: { item: any }) =>
-              item.type === 'group' ? (
-                <ChatRow
-                  name={item.name}
-                  photoURL={item.photoURL}
-                  lastMessage={item.lastMessage}
-                  lastMessageAt={item.lastMessageAt as never}
-                  unreadCount={item.unreadCount?.[profile?.uid ?? '']}
-                  onPress={() => navigation.navigate('ChatWindow', { conversation: item })}
-                />
-              ) : null
-            }
+            keyExtractor={(item: any) => item.groupId}
+            renderItem={({ item }: { item: any }) => (
+              <ChatRow
+                name={item.name}
+                photoURL={item.photoURL}
+                lastMessage={item.lastMessage}
+                lastMessageAt={item.lastMessageAt as never}
+                unreadCount={item.unreadCount?.[profile?.uid ?? '']}
+                onPress={() => navigation.navigate('ChatWindow', { conversation: item })}
+              />
+            )}
           />
         </View>
       )}

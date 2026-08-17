@@ -57,3 +57,35 @@ export async function deleteAvatars(publicIds: string[]): Promise<void> {
     publicIds.map((publicId) => cloudinary.uploader.destroy(publicId, { resource_type: "image" }))
   );
 }
+
+export type ChatMediaType = "image" | "file" | "voice";
+
+// Cloudinary has no "audio" resource type — voice notes upload as "video"
+// (its documented convention for audio-only assets); generic files use "raw".
+function resourceTypeFor(mediaType: ChatMediaType): "image" | "video" | "raw" {
+  if (mediaType === "image") return "image";
+  if (mediaType === "voice") return "video";
+  return "raw";
+}
+
+export async function uploadChatMedia(fileBuffer: Buffer, chatId: string, mediaType: ChatMediaType): Promise<UploadResult> {
+  ensureConfigured();
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: `${APP_FOLDER}/chat-media/${chatId}`,
+        resource_type: resourceTypeFor(mediaType),
+      },
+      (error, result) => {
+        if (error || !result) return reject(error ?? new Error("Upload failed"));
+        resolve({ url: result.secure_url, publicId: result.public_id });
+      }
+    );
+    streamifier.createReadStream(fileBuffer).pipe(uploadStream);
+  });
+}
+
+export async function deleteChatMedia(publicId: string, mediaType: ChatMediaType): Promise<void> {
+  ensureConfigured();
+  await cloudinary.uploader.destroy(publicId, { resource_type: resourceTypeFor(mediaType) });
+}

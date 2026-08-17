@@ -31,6 +31,7 @@ export const COLLECTIONS = {
   CHATS: 'chats',
   GROUPS: 'groups',
   OTPS: 'otps',
+  FOLLOW_UPS: 'followUps',
 } as const;
 
 export interface FirestoreUser {
@@ -82,6 +83,16 @@ export interface GroupDoc {
   lastRead?: Record<string, Timestamp>;
 }
 
+export interface MessageMediaMeta {
+  fileName?: string;
+  sizeBytes: number;
+  mimeType: string;
+  /** Voice notes only. */
+  durationMs?: number;
+  /** Cloudinary public id, needed to delete the asset later. */
+  publicId: string;
+}
+
 export interface MessageDoc {
   text: string;
   senderId: string;
@@ -92,6 +103,62 @@ export interface MessageDoc {
   forwarded?: boolean;
   edited?: boolean;
   editedAt?: Timestamp | FieldValue | null;
+  /** Present when this message carries an attachment; `text` doubles as an optional caption for image/file. */
+  mediaType?: 'image' | 'file' | 'voice';
+  mediaUrl?: string;
+  mediaMeta?: MessageMediaMeta;
+}
+
+/** A message tagged as a Question — one per source message. */
+export interface QuestionDoc {
+  sourceMessageId: string;
+  sourceText: string;
+  askedBy: string;
+  status: 'open' | 'answered';
+  answerText?: string;
+  answeredBy?: string;
+  createdAt: Timestamp | FieldValue | null;
+  answeredAt?: Timestamp | FieldValue | null;
+}
+
+/** A message tagged as a Decision. */
+export interface DecisionDoc {
+  sourceMessageId: string;
+  sourceText: string;
+  summary: string;
+  decidedBy: string[];
+  createdBy: string;
+  createdAt: Timestamp | FieldValue | null;
+}
+
+/** A message turned into a Task. */
+export interface TaskDoc {
+  sourceMessageId: string;
+  sourceText: string;
+  title: string;
+  assignedTo: string;
+  createdBy: string;
+  dueAt: Timestamp | FieldValue | null;
+  status: 'pending' | 'done';
+  createdAt: Timestamp | FieldValue | null;
+  completedAt?: Timestamp | FieldValue | null;
+}
+
+/**
+ * A personal reminder attached to a message — owned by the user who set it,
+ * not shared with the rest of the conversation. Lives in a top-level
+ * collection (not nested under the chat) so the scheduled Cloud Function that
+ * delivers due reminders can run one flat query instead of a collectionGroup.
+ */
+export interface FollowUpDoc {
+  uid: string;
+  chatId: string;
+  isGroup: boolean;
+  messageId: string;
+  sourceText: string;
+  remindAt: Timestamp | FieldValue | null;
+  status: 'pending' | 'sent' | 'dismissed';
+  createdAt: Timestamp | FieldValue | null;
 }
 
 // ─── User helpers ─────────────────────────────────────────────────────────────
@@ -126,6 +193,23 @@ export function groupRef(groupId: string) {
 
 export function messagesRef(parentCollection: 'chats' | 'groups', parentId: string) {
   return collection(db, parentCollection, parentId, 'messages');
+}
+
+export function questionsRef(parentCollection: 'chats' | 'groups', parentId: string) {
+  return collection(db, parentCollection, parentId, 'questions');
+}
+
+export function decisionsRef(parentCollection: 'chats' | 'groups', parentId: string) {
+  return collection(db, parentCollection, parentId, 'decisions');
+}
+
+export function tasksRef(parentCollection: 'chats' | 'groups', parentId: string) {
+  return collection(db, parentCollection, parentId, 'tasks');
+}
+
+/** Top-level — see `FollowUpDoc` for why this isn't nested under the chat. */
+export function followUpsRef() {
+  return collection(db, COLLECTIONS.FOLLOW_UPS);
 }
 
 export {

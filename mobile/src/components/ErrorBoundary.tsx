@@ -1,5 +1,6 @@
 import React, { Component, type ReactNode } from 'react';
 import { View, Text, Pressable } from 'react-native';
+import { getCrashlytics, recordError } from '@react-native-firebase/crashlytics';
 
 interface Props {
   children: ReactNode;
@@ -39,6 +40,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: { componentStack?: string | null }) {
     console.error('Unhandled error caught by ErrorBoundary:', error, info.componentStack);
+    recordError(getCrashlytics(), error);
   }
 
   render() {

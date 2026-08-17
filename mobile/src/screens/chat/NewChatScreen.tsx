@@ -92,6 +92,7 @@ export function NewChatScreen({ navigation }: Props) {
         <FlashList
           data={filtered}
           keyExtractor={(u) => u.uid}
+          // @ts-expect-error React 19 typings issue with FlashList
           estimatedItemSize={66}
           renderItem={({ item }) => (
             <Pressable

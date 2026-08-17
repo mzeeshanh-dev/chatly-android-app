@@ -4,7 +4,7 @@ export type RootStackParamList = {
   Splash: undefined;
   Auth: undefined;
   Main: undefined;
-  ChatWindow: { conversation: SelectedConversation };
+  ChatWindow: { conversation: SelectedConversation; highlightMessageId?: string };
   NewChat: undefined;
   NewGroup: undefined;
   GroupSettings: { groupId: string };

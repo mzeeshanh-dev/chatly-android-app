@@ -1,10 +1,11 @@
-import notifee, { AndroidImportance, EventType, AndroidStyle } from '@notifee/react-native';
+import notifee, { AndroidImportance, EventType, AndroidStyle, TriggerType } from '@notifee/react-native';
 import { onMessage, getInitialNotification, onNotificationOpenedApp, type RemoteMessage } from '@react-native-firebase/messaging';
 import { messaging } from './firebase';
 import { resolveConversation } from './conversationResolver';
 import { navigationRef } from '../navigation/navigationRef';
 
 const MESSAGES_CHANNEL_ID = 'messages';
+const REMINDERS_CHANNEL_ID = 'reminders';
 
 export async function ensureNotificationChannel() {
   try {
@@ -15,8 +16,44 @@ export async function ensureNotificationChannel() {
       sound: 'default',
       vibration: true,
     });
+    await notifee.createChannel({
+      id: REMINDERS_CHANNEL_ID,
+      name: 'Follow-up reminders',
+      importance: AndroidImportance.HIGH,
+      sound: 'default',
+      vibration: true,
+    });
   } catch (error) {
     console.warn('Failed to create Notifee channel:', error);
+  }
+}
+
+/**
+ * Schedules a local, on-device reminder for a follow-up (see lib/tags.ts).
+ * No server involved — mobile has no Cloud Functions backend of its own (see
+ * root README's "Server architecture" section), so there's no scheduled
+ * function to deliver this remotely. Trade-off: only fires on the device
+ * that set it, and only if notification permission + the OS's exact-alarm
+ * permission (Android 12+) are granted.
+ */
+export async function scheduleFollowUpReminder(id: string, remindAt: Date, sourceText: string) {
+  try {
+    await notifee.createTriggerNotification(
+      {
+        id: `followup-${id}`,
+        title: 'Follow-up reminder',
+        body: sourceText,
+        android: {
+          channelId: REMINDERS_CHANNEL_ID,
+          pressAction: { id: 'default' },
+          smallIcon: 'ic_notification',
+          color: '#10b981',
+        },
+      },
+      { type: TriggerType.TIMESTAMP, timestamp: remindAt.getTime(), alarmManager: true }
+    );
+  } catch (error) {
+    console.warn('Could not schedule follow-up reminder:', error);
   }
 }
 

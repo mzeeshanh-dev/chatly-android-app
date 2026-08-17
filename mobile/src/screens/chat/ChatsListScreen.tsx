@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useChatsQuery } from '../../hooks/useFirestoreQueries';
 import { AppText } from '../../components/AppText';
 import { ChatRow } from '../../components/ChatRow';
+import { getPresenceDotColor } from '../../components/Avatar';
 import { ChatRowSkeleton } from '../../components/ChatRowSkeleton';
 import { ProfilePhotoViewer } from '../../components/ProfilePhotoViewer';
 import { Screen } from '../../components/Screen';
@@ -129,19 +130,27 @@ export function ChatsListScreen() {
                 </Pressable>
               ) : null
             }
-            renderItem={({ item }: { item: any }) => (
-              <ChatRow
-                name={item.other.displayName}
-                photoURL={item.other.photoURL}
-                lastMessage={item.lastMessage}
-                lastMessageAt={item.lastMessageAt as never}
-                unreadCount={item.unreadCount?.[myUid]}
-                online={item.other.status === 'online'}
-                pending={item.status === 'pending' && item.requestedBy !== profile?.uid}
-                onPress={() => navigation.navigate('ChatWindow', { conversation: item })}
-                onAvatarPress={() => setViewerPhoto({ uri: item.other.photoURL, name: item.other.displayName })}
-              />
-            )}
+            renderItem={({ item }: { item: any }) => {
+              const isBlocked = Boolean(profile?.blockedUsers?.includes(item.other.uid) || item.other.blockedUsers?.includes(myUid));
+              const dotColor = getPresenceDotColor({
+                status: item.status,
+                isBlocked,
+                isOnline: item.other.status === 'online',
+              });
+              return (
+                <ChatRow
+                  name={item.other.displayName}
+                  photoURL={item.other.photoURL}
+                  lastMessage={item.lastMessage}
+                  lastMessageAt={item.lastMessageAt as never}
+                  unreadCount={item.unreadCount?.[myUid]}
+                  dotColor={dotColor ?? undefined}
+                  pending={item.status === 'pending' && item.requestedBy !== profile?.uid}
+                  onPress={() => navigation.navigate('ChatWindow', { conversation: item })}
+                  onAvatarPress={() => setViewerPhoto({ uri: item.other.photoURL, name: item.other.displayName })}
+                />
+              );
+            }}
             refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.primary} />}
           />
         </View>

@@ -3,7 +3,7 @@ import { View, Pressable } from 'react-native';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useTheme } from '../theme/ThemeContext';
 import { AppText } from './AppText';
-import { Avatar } from './Avatar';
+import { Avatar, type PresenceDotColor } from './Avatar';
 import type { Timestamp } from '@react-native-firebase/firestore';
 
 interface ChatRowProps {
@@ -13,12 +13,13 @@ interface ChatRowProps {
   lastMessageAt?: Timestamp;
   unreadCount?: number;
   online?: boolean;
+  dotColor?: PresenceDotColor;
   pending?: boolean;
   onPress: () => void;
   onAvatarPress?: () => void;
 }
 
-export const ChatRow = React.memo(function ChatRow({ name, photoURL, lastMessage, lastMessageAt, unreadCount, online, pending, onPress, onAvatarPress }: ChatRowProps) {
+export const ChatRow = React.memo(function ChatRow({ name, photoURL, lastMessage, lastMessageAt, unreadCount, online, dotColor, pending, onPress, onAvatarPress }: ChatRowProps) {
   const { colors, isDark } = useTheme();
   const hasUnread = Boolean(unreadCount && unreadCount > 0);
 
@@ -47,7 +48,7 @@ export const ChatRow = React.memo(function ChatRow({ name, photoURL, lastMessage
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
       }}>
-        <Avatar uri={photoURL} name={name} size={54} online={online} onPress={onAvatarPress} />
+        <Avatar uri={photoURL} name={name} size={54} online={online} dotColor={dotColor} onPress={onAvatarPress} />
       <View style={{ flex: 1, minWidth: 0, justifyContent: 'center', marginLeft: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
           <AppText
