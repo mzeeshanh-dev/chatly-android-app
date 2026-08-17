@@ -1,5 +1,10 @@
 # Chatly
 
+# Live Preview
+<img width="360" height="777" alt="output" src="https://github.com/user-attachments/assets/f59ba73e-5969-44da-86ce-c544b05aa3c3" />
+
+
+
 **Real-time 1-on-1 and group messaging, on the web and on Android — one Firebase backend, two clients.**
 
 ![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
